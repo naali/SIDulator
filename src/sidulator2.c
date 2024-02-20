@@ -28,19 +28,21 @@ int verbose(const char * restrict format, ...) {
 
 
 static struct option long_options[] = {
-    {"sidfile", required_argument, 0, 'f'},
-    {"emulate", required_argument, 0, 'e'},
-    {"verbose", no_argument, &flag_verbose, 'v'},
-    {"subtune", no_argument, 0, 't'},
-    {"printmem", no_argument, 0, 'm'},
-    {"checkmem", required_argument, 0, 'r'},
-    {"help", no_argument, 0, 'h'},
+    {"sidfile",  required_argument,             0, 'f'},
+    {"emulate",  required_argument,             0, 'e'},
+    {"verbose",  no_argument,       &flag_verbose, 'v'},
+    {"subtune",  required_argument,             0, 't'},
+    {"printmem", no_argument,                   0, 'm'},
+    {"checkmem", required_argument,             0, 'r'},
+    {"clear",    no_argument,                   0, 'c'},
+    {"asm",      required_argument,             0, 'a'},
+    {"help",     no_argument,                   0, 'h'},
     {0, 0, 0, 0}
 
 };
 
 void printHelp() {
-    printf("OPTIONS:\n");
+    fprintf(stderr, "OPTIONS:\n");
     for (size_t i = 0; i < sizeof(long_options)/sizeof(long_options[0]); i++) {
         if (long_options[i].val == 0) { continue; }
 
@@ -54,7 +56,6 @@ void printHelp() {
 static uint8 memory[MEMSIZE];
 static uint8 memory_states[MEMSIZE];
 static int memory_count[MEMSIZE];
-static bool memory_init[MEMSIZE];
 
 #define MEMSTATE_READ (1)
 #define MEMSTATE_WRITTEN (2)
@@ -79,9 +80,12 @@ void write6502(ushort addr, uint8 val) {
 
 void clearMemory(uint8 value) {
     memset(memory, value, sizeof(memory)/sizeof(memory[0]));
+}
+
+void clearMemoryTracking()
+{
     memset(memory_states, 0, sizeof(memory_states)/sizeof(memory_states[0]));
     memset(memory_count, 0, sizeof(memory_count)/sizeof(memory_count[0]));
-    memset(memory_init, 0, sizeof(memory_init)/sizeof(memory_init[0]));
 }
 
 
@@ -137,7 +141,6 @@ void loadSid(const char* filename, uint16_t* initAddr, uint16_t* playAddr) {
 
     for (int i = 0; i < datalen; i++)
     {
-        memory_init[ loadaddr + i] = true;
         memory_states[ loadaddr + i ] |= MEMSTATE_INIT;
     }
 
@@ -222,8 +225,19 @@ void printRangesWithMask(int mask) {
             
         }
     }
-
 }
+
+void printAsmWithMask(int mask, const char* fn) {
+    for (int i = 0; i <= 0xFFFF; i++)
+    {
+        if ( memory_states[i] & mask)
+        {
+            printf("LDA #$%02X\n", memory[i]);
+            printf("STA $%04X\n", i);
+        }
+    }
+}
+
 
 int checkUsage(uint16_t startAddr, uint16_t endAddr) {
     int s = startAddr < endAddr ? startAddr : endAddr;
@@ -290,6 +304,7 @@ int main(int argc, char** argv) {
 
 
     clearMemory(0);
+    clearMemoryTracking();
 
     uint16_t initAddr = 0;
     uint16_t playAddr = 0;
@@ -299,7 +314,7 @@ int main(int argc, char** argv) {
 
     do {
         int option_index = 0;
-        c = getopt_long(argc, argv, "f:e:vt:mhr:", long_options, &option_index);
+        c = getopt_long(argc, argv, "f:e:vt:mhr:ca", long_options, &option_index);
 
         if (c < 0) { break; }
 
@@ -308,10 +323,10 @@ int main(int argc, char** argv) {
                 /* If this option set a flag, do nothing else now. */
                 if (long_options[option_index].flag != 0) { break; }
 
-                printf("option %s", long_options[option_index].name);
+                fprintf(stderr, "option %s", long_options[option_index].name);
 
                 if (optarg) {
-                    printf(" with arg %s\n", optarg);
+                    fprintf(stderr, " with arg %s\n", optarg);
                 }
                 break;
 
@@ -322,6 +337,11 @@ int main(int argc, char** argv) {
             case 'v':
                 verbose("Verbose mode\n");
                 flag_verbose = 'v';
+                break;
+
+            case 'c':
+                verbose("Clearing memory tracking\n");
+                clearMemoryTracking();
                 break;
 
             case 'e':
@@ -353,6 +373,12 @@ int main(int argc, char** argv) {
                 printAllWithMask(MEMSTATE_ALL);
                 break;
 
+            case 'a':
+                verbose("Generating asm:\n");
+                printAsmWithMask(MEMSTATE_WRITTEN, optarg);
+                break;
+
+
             case 'r':
             {
                 int beg,end;
@@ -370,26 +396,6 @@ int main(int argc, char** argv) {
                 exit(1);
         }
     } while (c >= 0);
-
-/*
-    if (optind < argc) {
-        printf("Extra arguments given (maybe you got something wrong?): ");
-
-        while (optind < argc) {
-            printf("%s ", argv[optind++]);
-        }
-
-        putchar('\n');
-    }
-*/
-
-
-    //ignoreRegion(0x0000, 0x00ff); // ignore zp
-    //ignoreRegion(0xd400, 0xd7ff);
-
-
-    //printRangesWithMask(MEMSTATE_READ);
-    //printRangesWithMask(MEMSTATE_WRITTEN);
 
     return 0;
 }
