@@ -35,7 +35,7 @@ static struct option long_options[] = {
     {"printmem", no_argument,                   0, 'm'},
     {"checkmem", required_argument,             0, 'r'},
     {"clear",    no_argument,                   0, 'c'},
-    {"asm",      required_argument,             0, 'a'},
+    {"asm",      no_argument,                   0, 'a'},
     {"help",     no_argument,                   0, 'h'},
     {0, 0, 0, 0}
 
@@ -227,13 +227,13 @@ void printRangesWithMask(int mask) {
     }
 }
 
-void printAsmWithMask(int mask, const char* fn) {
+void printAsmWithMask(int mask) {
     for (int i = 0; i <= 0xFFFF; i++)
     {
         if ( memory_states[i] & mask)
         {
-            printf("LDA #$%02X\n", memory[i]);
-            printf("STA $%04X\n", i);
+            printf("lda #$%02X\n", memory[i]);
+            printf("sta $%04X\n", i);
         }
     }
 }
@@ -375,7 +375,7 @@ int main(int argc, char** argv) {
 
             case 'a':
                 verbose("Generating asm:\n");
-                printAsmWithMask(MEMSTATE_WRITTEN, optarg);
+                printAsmWithMask(MEMSTATE_WRITTEN);
                 break;
 
 
