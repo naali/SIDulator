@@ -172,12 +172,15 @@ void runUntilRTS(uint16_t newpc, uint8_t accu) {
 
 }
 
-void RunSid(int frameCount, int subTune, uint16_t initAddr, uint16_t playAddr) {
-    //reset6502();
-
+void callInit(int subTune, uint16_t initAddr)
+{
     verbose("Begin emulation..");
     runUntilRTS(initAddr, subTune);
     verbose(".");
+}
+
+void RunSid(int frameCount, uint16_t playAddr) {
+    //reset6502();
 
     for (int i = 0; i < frameCount; i++)
     {
@@ -312,6 +315,10 @@ int main(int argc, char** argv) {
                 }
                 break;
 
+            case 'h':
+                printHelp();
+                break;
+
             case 'v':
                 verbose("Verbose mode\n");
                 flag_verbose = 'v';
@@ -325,7 +332,7 @@ int main(int argc, char** argv) {
                 }
                 frameCount = (int)strtol(optarg, NULL, 0);
                 verbose("emulating %d frames\n", frameCount);
-                RunSid(frameCount, subTune, initAddr, playAddr);
+                RunSid(frameCount, playAddr);
 
                 ignoreRegion(0x0100, 0x01ff); // ignore stack
                 break;
@@ -338,6 +345,7 @@ int main(int argc, char** argv) {
             case 't':
                 subTune = (int)strtol(optarg, NULL, 0);
                 verbose("using subtune %d\n", subTune);
+                callInit(subTune, initAddr);
                 break;
 
             case 'm':
