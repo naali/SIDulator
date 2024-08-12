@@ -29,13 +29,17 @@ int verbose(const char * restrict format, ...) {
 
 static struct option long_options[] = {
     {"sidfile",  required_argument,             0, 'f'},
+    {"prgfile",  required_argument,             0, 'p'},
+    {"prginit",  required_argument,             0, 'I'},
+    {"prgplay",  required_argument,             0, 'P'},
     {"emulate",  required_argument,             0, 'e'},
     {"verbose",  no_argument,       &flag_verbose, 'v'},
     {"subtune",  required_argument,             0, 't'},
     {"printmem", no_argument,                   0, 'm'},
     {"checkmem", required_argument,             0, 'r'},
-    {"clear",    no_argument,                   0, 'c'},
+    {"clear",    required_argument,             0, 'c'},
     {"asm",      no_argument,                   0, 'a'},
+    {"mprg",     required_argument,             0, 'A'},
     {"help",     no_argument,                   0, 'h'},
     {0, 0, 0, 0}
 
@@ -82,15 +86,11 @@ void clearMemory(uint8 value) {
     memset(memory, value, sizeof(memory)/sizeof(memory[0]));
 }
 
-void clearMemoryTracking()
+void clearAllMemoryTracking()
 {
     memset(memory_states, 0, sizeof(memory_states)/sizeof(memory_states[0]));
     memset(memory_count, 0, sizeof(memory_count)/sizeof(memory_count[0]));
 }
-
-
-
-
 
 void loadSid(const char* filename, uint16_t* initAddr, uint16_t* playAddr) {
     verbose("Loading sid %s\n", filename);
@@ -101,7 +101,7 @@ void loadSid(const char* filename, uint16_t* initAddr, uint16_t* playAddr) {
     }
 
     fseek(fp, 0, SEEK_END);
-    long filesize = ftell(fp);
+    long fileSize = ftell(fp);
 
     fseek(fp, 0, SEEK_SET);
 
@@ -116,32 +116,64 @@ void loadSid(const char* filename, uint16_t* initAddr, uint16_t* playAddr) {
 
 
 
-    uint16_t loadaddr = ntohs(*(uint16_t*)&(header[0x8]));
+    uint16_t loadAddr = ntohs(*(uint16_t*)&(header[0x8]));
     *initAddr = ntohs(*(uint16_t*)&(header[0xA]));
     *playAddr = ntohs(*(uint16_t*)&(header[0xC]));
     uint32_t ident = *(uint32_t*)&(header[0x0]);
 
     fseek(fp, dataoffs, SEEK_SET);
 
-    if (loadaddr == 0)
-        fread( &loadaddr, 2, 1, fp);
+    if (loadAddr == 0)
+        fread( &loadAddr, 2, 1, fp);
 
-    long datalen = filesize - ftell(fp);
+    long dataLen = fileSize - ftell(fp);
 
 
     verbose("SIDINFO: id %08X\n", ident);
-    verbose("SIDINFO: load address: $%04X-$%04X\n", loadaddr, (int)(loadaddr+datalen-1));
+    verbose("SIDINFO: load address: $%04X-$%04X\n", loadAddr, (int)(loadAddr+dataLen-1));
     verbose("SIDINFO: init address: $%04X\n", *initAddr);
     verbose("SIDINFO: play address: $%04X\n", *playAddr);
     verbose("SIDINFO: name: %s\n", &(header[0x16]));
     verbose("SIDINFO: author: %s\n", &(header[0x36]));
     verbose("SIDINFO: copyright: %s\n", &(header[0x56]));
 
-    fread(&(memory[loadaddr]), 1, datalen, fp);
+    fread(&(memory[loadAddr]), 1, dataLen, fp);
 
-    for (int i = 0; i < datalen; i++)
+    for (int i = 0; i < dataLen; i++)
     {
-        memory_states[ loadaddr + i ] |= MEMSTATE_INIT;
+        memory_states[ loadAddr + i ] |= MEMSTATE_INIT;
+    }
+
+    fclose(fp);
+}
+
+void loadPrg(const char* filename) {
+    verbose("Loading prg %s\n", filename);
+    FILE *fp = fopen(filename, "r");
+    if (!fp) { 
+        fprintf(stderr, "Couldn't open file `%s`. Exiting...\n", filename);
+        exit(1);
+    }
+
+    int loadAddr = 0;
+
+    fseek(fp, 0, SEEK_END);
+    long fileSize = ftell(fp);
+
+    fseek(fp, 0, SEEK_SET);
+
+    fread( &loadAddr, 2, 1, fp);
+
+    long dataLen = fileSize - ftell(fp);
+
+
+    verbose("PRGINFO: load address: $%04X-$%04X\n", loadAddr, (int)(loadAddr+dataLen-1));
+
+    fread(&(memory[loadAddr]), 1, dataLen, fp);
+
+    for (int i = 0; i < dataLen; i++)
+    {
+        memory_states[ loadAddr + i ] |= MEMSTATE_INIT;
     }
 
     fclose(fp);
@@ -238,7 +270,29 @@ void printAsmWithMask(int mask) {
     }
 }
 
+void printMprgWithMask(int mask, const char* filename) {
+    verbose("Saving patch mprg %s\n", filename);
+    FILE *fp = fopen(filename, "w");
+    if (!fp) { 
+        fprintf(stderr, "Couldn't open file `%s`. Exiting...\n", filename);
+        exit(1);
+    }
 
+    for (int i = 0; i <= 0xFFFF; i++)
+    {
+        if ( memory_states[i] & mask)
+        {
+            uint16_t size = 1;
+            uint16_t pos = i;
+            fwrite(&size,1, 2, fp);
+            fwrite(&pos,1, 2, fp);
+            fputc(memory[i], fp);
+        }
+    }
+    fclose(fp);
+}
+
+// TODO: maybe shouldn't be part of the basic featureset?
 int checkUsage(uint16_t startAddr, uint16_t endAddr) {
     int s = startAddr < endAddr ? startAddr : endAddr;
     int e = startAddr > endAddr ? startAddr : endAddr;
@@ -261,7 +315,7 @@ int checkUsage(uint16_t startAddr, uint16_t endAddr) {
 
 }
 
-void ignoreRegion(uint16_t startAddr, uint16_t endAddr) {
+void clearMemoryTracking(uint16_t startAddr, uint16_t endAddr) {
     int s = startAddr < endAddr ? startAddr : endAddr;
     int e = startAddr > endAddr ? startAddr : endAddr;
 
@@ -304,7 +358,7 @@ int main(int argc, char** argv) {
 
 
     clearMemory(0);
-    clearMemoryTracking();
+    clearAllMemoryTracking();
 
     uint16_t initAddr = 0;
     uint16_t playAddr = 0;
@@ -314,7 +368,7 @@ int main(int argc, char** argv) {
 
     do {
         int option_index = 0;
-        c = getopt_long(argc, argv, "f:e:vt:mhr:ca", long_options, &option_index);
+        c = getopt_long(argc, argv, "f:p:I:P:e:vt:mhr:c:aA:", long_options, &option_index);
 
         if (c < 0) { break; }
 
@@ -340,9 +394,15 @@ int main(int argc, char** argv) {
                 break;
 
             case 'c':
-                verbose("Clearing memory tracking\n");
-                clearMemoryTracking();
+            {
+                int beg,end;
+                sscanf(optarg, "%X-%X", &beg, &end);
+
+                verbose("Clearing memory tracking between %X-%X\n", beg, end);
+                clearMemoryTracking(beg, end);
                 break;
+            }
+
 
             case 'e':
                 if (initAddr == 0 || playAddr == 0)
@@ -354,12 +414,24 @@ int main(int argc, char** argv) {
                 verbose("emulating %d frames\n", frameCount);
                 RunSid(frameCount, playAddr);
 
-                ignoreRegion(0x0100, 0x01ff); // ignore stack
+                clearMemoryTracking(0x0100, 0x01ff); // ignore stack
                 break;
 
             case 'f':
                 verbose("loading sid `%s`\n", optarg);
                 loadSid(optarg, &initAddr, &playAddr);
+                break;
+
+            case 'p':
+                loadPrg(optarg);
+                break;
+
+            case 'I':
+                initAddr = (int)strtol(optarg, NULL, 0);
+                break;
+
+            case 'P':
+                playAddr = (int)strtol(optarg, NULL, 0);
                 break;
 
             case 't':
@@ -376,6 +448,11 @@ int main(int argc, char** argv) {
             case 'a':
                 verbose("Generating asm:\n");
                 printAsmWithMask(MEMSTATE_WRITTEN);
+                break;
+
+            case 'A':
+                verbose("Generating mprg:\n");
+                printMprgWithMask(MEMSTATE_WRITTEN, optarg);
                 break;
 
 
